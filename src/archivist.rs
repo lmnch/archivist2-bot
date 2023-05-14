@@ -1,21 +1,31 @@
 
+use teloxide::{prelude::*, net::Download};
+use tokio::fs;
+use std::{path::Path, sync::Arc};
+
+use crate::{config::RepositoryFactory, git};
 
 struct Archivist {
     bot: Bot,
     repos: dyn RepositoryFactory
 }
 
+
 impl Archivist {
     async fn init(&self) {
-        let bot = self.bot;
-        teloxide::repl(self.bot,  
-            |message: Message| async move {
-                self.answer(message).await
-            }
-        ).await;
+        teloxide::repl(self.bot, |m: Message| async move { 
+            self.reply(m); 
+            Ok(()) 
+        });
+    }
+    
+
+    fn reply(&self, m: Message){
+
     }
 
-    async fn answer(&self, msg: Message)  -> ResponseResult<()> {
+
+    async fn answer(msg: Message)  -> ResponseResult<()> {
         if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
             // Unpin old auth messages
             self.bot.unpin_all_chat_messages(msg.chat.id).await?;
@@ -48,8 +58,9 @@ impl Archivist {
             let file = self.bot.get_file(file_meta.id).await?;
 
             // Get destinated location
-            let dest = repo.unwrap().path;
+            let dest = repo.unwrap().path().clone();
             let dst_name = msg.caption().unwrap_or("tmp.pdf");
+            let rel_path = Path::new(dst_name);
             let path_str = dest + "/" + dst_name;
             let path = Path::new(&path_str);
             if path.parent().is_some() && !path.parent().unwrap().exists() {
@@ -60,8 +71,17 @@ impl Archivist {
             let downloaded = self.bot.download_file(&file.path, &mut dst).await?;
             println!("File: {:?}", downloaded);
             self.bot.send_message(msg.chat.id, "File stored at ".to_string() + path.to_str().unwrap()).await?;
+
+            let commit = git::add_and_commit(repo.unwrap(), rel_path);
+            if commit.is_ok() {
+                self.bot.send_message(msg.chat.id, format!("Commit: {}", commit.unwrap())).await?;
+            }else{
+                self.bot.send_message(msg.chat.id, format!("Error during commit: {}", commit.err().unwrap())).await?;
+            }
         }
     }
     Ok(())
     }
 }
+
+unsafe impl Sync for Archivist {}

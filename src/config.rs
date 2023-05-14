@@ -1,6 +1,5 @@
 use git2::Signature;
 
-
 pub struct Repository {
     path: String,
     secret: String,
@@ -26,6 +25,9 @@ pub trait RepositoryFactory{
    fn get_repositories(&self) -> Vec<&Repository>;
    fn get_repository(&self, secret: &String) -> Option<&Repository>;
 }
+
+
+unsafe impl Sync for EnvironmentRepositoryFactory {}
 
 pub struct EnvironmentRepositoryFactory {
     pub repo: Repository
