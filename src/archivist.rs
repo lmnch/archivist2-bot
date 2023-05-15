@@ -1,31 +1,19 @@
 
 use teloxide::{prelude::*, net::Download};
 use tokio::fs;
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 use crate::{config::RepositoryFactory, git};
 
-struct Archivist {
-    bot: Bot,
-    repos: dyn RepositoryFactory
+
+pub struct Archivist<T: RepositoryFactory> {
+    pub bot: Bot,
+    pub repos: T
 }
 
 
-impl Archivist {
-    async fn init(&self) {
-        teloxide::repl(self.bot, |m: Message| async move { 
-            self.reply(m); 
-            Ok(()) 
-        });
-    }
-    
-
-    fn reply(&self, m: Message){
-
-    }
-
-
-    async fn answer(msg: Message)  -> ResponseResult<()> {
+impl<T: RepositoryFactory> Archivist<T> {    
+    pub async fn answer(&self, msg: Message)  -> ResponseResult<()> {
         if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
             // Unpin old auth messages
             self.bot.unpin_all_chat_messages(msg.chat.id).await?;
@@ -83,5 +71,3 @@ impl Archivist {
     Ok(())
     }
 }
-
-unsafe impl Sync for Archivist {}
