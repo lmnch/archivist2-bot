@@ -1,4 +1,4 @@
-use std::{path::Path, env};
+use std::path::Path;
 use git2::{Oid, ObjectType, Commit, Direction, RemoteCallbacks, Tree};
 
 use crate::config::Repository;
@@ -12,10 +12,15 @@ pub trait Publisher {
 
 
 pub struct GitPublisher {
+    ssh_key: String
 }
 
 
 impl GitPublisher {
+    pub fn new(ssh_key: String) -> GitPublisher {
+        GitPublisher { ssh_key }
+    }
+
     fn find_last_commit<'a>(&'a self, repo: &'a git2::Repository) -> Result<Commit, git2::Error> {
         let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
         let last_commit = obj.into_commit().map_err(|_| git2::Error::from_str("Couldn't find commit"))?;
@@ -37,7 +42,7 @@ impl GitPublisher {
             git2::Cred::ssh_key(
                 username_from_url.unwrap(),
                 None,
-                Path::new(&format!("{}", env::var("SSH_KEYS").unwrap())),
+                Path::new(&self.ssh_key),
                 None
             )
         });

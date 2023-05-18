@@ -5,6 +5,7 @@ use teloxide::prelude::*;
 mod config;
 mod archivist;
 mod publisher;
+mod categorizer;
 
 #[tokio::main]
 async fn main() {
@@ -24,14 +25,17 @@ async fn run() {
         let path = std::env::var("GIT_REPO").unwrap_or(".".to_string());
         let name = std::env::var("GIT_NAME").unwrap_or("archiver".to_string());
         let email = std::env::var("GIT_EMAIL").unwrap_or("archiver@mail.com".to_string());
+        let ssh_key = std::env::var("SSH_KEY").unwrap_or("".to_string());
 
         let repos = config::EnvironmentRepositoryFactory{
             repo: config::Repository::new(path, secret, name, email)
         };
 
-        let publisher = publisher::GitPublisher{  };
+        let publisher = publisher::GitPublisher::new(ssh_key);
 
-        let archivist = archivist::Archivist { bot, repos, publisher };
+        let categori = categorizer::ExactPathCategorizer::new();
+
+        let archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori  };
 
         archivist.answer(m).await?;
         Ok(()) 
