@@ -3,16 +3,17 @@ use teloxide::{prelude::*, net::Download};
 use tokio::fs;
 use std::path::Path;
 
-use crate::{config::RepositoryFactory, git};
+use crate::{config::RepositoryFactory, publisher};
 
 
-pub struct Archivist<T: RepositoryFactory> {
+pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher> {
     pub bot: Bot,
-    pub repos: T
+    pub repos: T,
+    pub publisher: P
 }
 
 
-impl<T: RepositoryFactory> Archivist<T> {    
+impl<T: RepositoryFactory, P: publisher::Publisher> Archivist<T, P> {    
     pub async fn answer(&self, msg: Message)  -> ResponseResult<()> {
         if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
             // Unpin old auth messages
@@ -20,11 +21,16 @@ impl<T: RepositoryFactory> Archivist<T> {
             self.bot.pin_chat_message(msg.chat.id, msg.id).await?;
             self.bot.send_message(msg.chat.id, "Credentials stored!").await?;
 
+            println!("[chat: {}] Stored authentication credential", msg.chat.id);
+
             return Ok(())
     }else{
         let auth_message: Option<Box<Message>> = self.bot.get_chat(msg.chat.id).await?.pinned_message.clone();
         if !auth_message.is_some() {
             self.bot.send_message(msg.chat.id, "Please authenticate first!").await?;
+
+            print!("[chat: {}] No authentication message found", msg.chat.id);
+
             return Ok(());
         }
         
@@ -34,7 +40,10 @@ impl<T: RepositoryFactory> Archivist<T> {
         let repo = self.repos.get_repository(&passed_secret);
 
         if repo.is_none(){
-            self.bot.send_message(msg.chat.id, "Incorrect authentication token!");
+            self.bot.send_message(msg.chat.id, "Incorrect authentication token!").await?;
+
+            print!("[chat: {}] Incorrect authentication token", msg.chat.id);
+
             return Ok(())
         }
 
@@ -42,8 +51,8 @@ impl<T: RepositoryFactory> Archivist<T> {
         if msg.document().is_some() {
             // Write file to disk
             let file_meta = msg.document().unwrap().file.clone();
-            println!("File id is: {}", file_meta.unique_id);
             let file = self.bot.get_file(file_meta.id).await?;
+            println!("[chat: {}] Pushing file {:?}", msg.chat.id, file);
 
             // Get destinated location
             let dest = repo.unwrap().path().clone();
@@ -53,14 +62,17 @@ impl<T: RepositoryFactory> Archivist<T> {
             let path = Path::new(&path_str);
             if path.parent().is_some() && !path.parent().unwrap().exists() {
                     fs::create_dir_all(path.parent().unwrap()).await?;
+                    println!("[chat: {}] Created directory {:?}", msg.chat.id, path.parent().unwrap());
             }
             let mut dst = fs::File::create(path).await?;
+            println!("[chat: {}] Created file at {:?}", msg.chat.id, path);
 
             let downloaded = self.bot.download_file(&file.path, &mut dst).await?;
-            println!("File: {:?}", downloaded);
+            println!("[chat: {}] Downloaded file {:?}", msg.chat.id, downloaded);
             self.bot.send_message(msg.chat.id, "File stored at ".to_string() + path.to_str().unwrap()).await?;
 
-            let commit = git::add_and_commit(repo.unwrap(), rel_path);
+            let commit = self.publisher.publish_file(repo.unwrap(), rel_path);
+            println!("[chat: {}] Committed file {:?}", msg.chat.id, commit);
             if commit.is_ok() {
                 self.bot.send_message(msg.chat.id, format!("Commit: {}", commit.unwrap())).await?;
             }else{

@@ -3,8 +3,8 @@ use teloxide::prelude::*;
 
 // mod bot_action;
 mod config;
-mod git;
 mod archivist;
+mod publisher;
 
 #[tokio::main]
 async fn main() {
@@ -28,16 +28,13 @@ async fn run() {
         let repos = config::EnvironmentRepositoryFactory{
             repo: config::Repository::new(path, secret, name, email)
         };
-        let archivist = archivist::Archivist { bot, repos };
+
+        let publisher = publisher::GitPublisher{  };
+
+        let archivist = archivist::Archivist { bot, repos, publisher };
 
         archivist.answer(m).await?;
         Ok(()) 
     }).await;
-    
-        // let repos_ref = &repos;
-
-        // teloxide::repl(bot,   | b: Bot, message: Message | {
-        //     bot_action::bot_action(repos_ref, b, message).await
-        // }).await;
 }
 
