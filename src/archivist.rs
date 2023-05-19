@@ -3,14 +3,15 @@ use teloxide::{prelude::*, net::Download};
 use tokio::fs;
 use std::path::Path;
 
-use crate::{config::RepositoryFactory, publisher, categorizer};
+use crate::{config::RepositoryFactory, publisher, categorizer,path_matcher};
 
 
 pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer> {
     pub bot: Bot,
     pub repos: T,
     pub publisher: P,
-    pub categorizer: C
+    pub categorizer: C,
+    pub matcher: path_matcher::Matcher<path_matcher::LatestRule<path_matcher::DefaultRule>>,
 }
 
 
@@ -57,7 +58,8 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer> 
 
             // Get destinated location
             let dest = Path::new(repo.unwrap().path());
-            let target = self.categorizer.categorize(msg.caption());
+            let matching_template = self.categorizer.categorize(msg.caption(), categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
+            let target = self.matcher.resolve(&repo.unwrap(), matching_template);
             let rel_path = Path::new(&target);
             let path = dest.join(rel_path.clone());
             if path.parent().is_some() && !path.parent().unwrap().exists() {

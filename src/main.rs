@@ -6,6 +6,7 @@ mod config;
 mod archivist;
 mod publisher;
 mod categorizer;
+mod path_matcher;
 
 #[tokio::main]
 async fn main() {
@@ -33,9 +34,9 @@ async fn run() {
 
         let publisher = publisher::GitPublisher::new(ssh_key);
 
-        let categori = categorizer::ExactPathCategorizer::new();
+        let categori = categorizer::RepoBasedCategorizer::new();
 
-        let archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori  };
+        let archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori, matcher: path_matcher::Matcher::new()  };
 
         archivist.answer(m).await?;
         Ok(()) 

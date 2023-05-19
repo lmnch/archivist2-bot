@@ -12,13 +12,13 @@ pub trait Publisher {
 
 
 pub struct GitPublisher {
-    ssh_key: String
+    ssh_key: String,
+    branch: String
 }
-
 
 impl GitPublisher {
     pub fn new(ssh_key: String) -> GitPublisher {
-        GitPublisher { ssh_key }
+        GitPublisher { ssh_key, branch: "master".to_string() }
     }
 
     fn find_last_commit<'a>(&'a self, repo: &'a git2::Repository) -> Result<Commit, git2::Error> {
@@ -26,6 +26,24 @@ impl GitPublisher {
         let last_commit = obj.into_commit().map_err(|_| git2::Error::from_str("Couldn't find commit"))?;
         println!("[repo: {}] Last commit: {}", repo.path().display(), last_commit.id());
         Ok(last_commit)
+    }
+
+    fn pull(&self, repo: &git2::Repository) -> Result<(), git2::Error> {
+        repo.find_remote("origin")?.fetch(&[self.branch.clone()], None, None)?;
+        let fetch_head = repo.find_reference("FETCH_HEAD")?;
+        let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
+        let analysis = repo.merge_analysis(&[&fetch_commit])?;
+        if analysis.0.is_up_to_date() {
+            Ok(())
+        } else if analysis.0.is_fast_forward() {
+            let refname = format!("refs/heads/{}", self.branch);
+            let mut reference = repo.find_reference(&refname)?;
+            reference.set_target(fetch_commit.id(), "Fast-Forward")?;
+            repo.set_head(&refname)?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+        } else {
+            Err(git2::Error::from_str("Fast-forward only!"))
+        }
     }
 
     fn push(&self, repo: &git2::Repository) -> Result<(), git2::Error> {
@@ -61,8 +79,12 @@ impl GitPublisher {
         repo.find_tree(oid)
     }
 
+    fn get_commit_msg(&self) -> &str {
+        "Lol"
+    }
+
     fn create_commit(&self, git_repo: &git2::Repository, sign: &git2::Signature, tree: &Tree, parent_commit: &Commit)-> Result<Oid, git2::Error>{
-        let commit_id = git_repo.commit(Some("HEAD"), &sign, &sign, "Lol", &tree, &[&parent_commit])?;
+        let commit_id = git_repo.commit(Some("HEAD"), &sign, &sign, self.get_commit_msg(), &tree, &[&parent_commit])?;
         println!("[repo: {}] Created commit {}", git_repo.path().display(), commit_id);
         Ok(commit_id)
     }
@@ -71,6 +93,9 @@ impl GitPublisher {
 impl Publisher for GitPublisher {
     fn publish_file(&self, repo: &Repository, added_file: &Path) -> Result<Oid, git2::Error> {
         let git_repo = git2::Repository::open(repo.path())?;
+
+        self.pull(&git_repo)?;
+
         let tree = self.add_to_index(&git_repo, added_file)?;       
 
         let parent_commit = self.find_last_commit(&git_repo)?;
