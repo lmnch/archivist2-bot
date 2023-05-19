@@ -117,7 +117,11 @@ impl Categorizer for RepoBasedCategorizer {
         
         let found = categories.as_ref().unwrap().get_category(&tags.map(|s|s.to_string()).collect()).map(|cat| cat.path_matcher.clone());
         if found.is_none() {
-            return categories.unwrap().default_category;
+            if categorization.is_some() {
+                return categorization_string;
+            }else{
+                return categories.unwrap().default_category.to_string();
+            }
         }
         return found.unwrap();
     }
