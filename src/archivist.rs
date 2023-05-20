@@ -56,6 +56,13 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, 
             let file_meta = msg.document().unwrap().file.clone();
             let file = self.bot.get_file(file_meta.id).await?;
 
+            // Pull changes upfront
+            let pull_result = self.publisher.update_files(repo.unwrap());
+            if pull_result.is_err() {
+                self.bot.send_message(msg.chat.id, format!("Pull failed: {}", pull_result.err().unwrap())).await?;
+                return Ok(());
+            }
+
             // Get destinated location
             println!("[chat: {}] Pushing file {:?} to repo at {}", msg.chat.id, file, repo.unwrap().path());
             let dest = Path::new(repo.unwrap().path());

@@ -1,8 +1,6 @@
 use dotenv::dotenv;
 use teloxide::prelude::*;
 
-use crate::path_matcher::{AddRule, LatestRule, DefaultRule, Matcher};
-
 // mod bot_action;
 mod config;
 mod archivist;
@@ -40,7 +38,7 @@ async fn run() {
         let categori = categorizer::RepoBasedCategorizer::new();
 
         let archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori,
-            matcher: Matcher::new(),
+            matcher: path_matcher::Matcher::new(),
             message_generator: commit_messages::WhatTheCommitMessageGenerator::new()  };
 
         archivist.answer(m).await?;

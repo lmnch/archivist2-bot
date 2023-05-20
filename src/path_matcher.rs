@@ -24,6 +24,9 @@ impl<'a> RuleContext<'a>{
         self.path[0..self.index].join("/")
     }
 
+    fn is_last(&self) -> bool {
+       return self.index == self.path.len() - 1
+    }
 }
 
 pub trait PathRule {
@@ -45,9 +48,13 @@ pub struct LatestRule<N: PathRule> {
 impl<T: PathRule> PathRule for LatestRule<T> {
     fn resolve(&self, context: &RuleContext) -> String {
        if context.current() == "^" {
+            // println!("trying to read dir {}/{}",context.repo.path(), context.until_current());
             let paths = std::fs::read_dir(format!("{}/{}",context.repo.path(), context.until_current())).unwrap();
 
-            return paths.map(|dir_entry| dir_entry.unwrap().file_name().into_string().unwrap()).max().unwrap();
+            return paths
+                .filter(|dir_entry| context.is_last() || dir_entry.as_ref().unwrap().file_type().unwrap().is_dir())
+                .map(|dir_entry| dir_entry.unwrap().file_name().into_string().unwrap())
+                .max().unwrap();
        }
        // not resolvable by this rule
        return self.next.resolve(context);

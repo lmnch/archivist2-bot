@@ -8,6 +8,11 @@ pub trait Publisher {
      * Add a file to the repository, commits it and pushs it to the server
      */
     fn publish_file(&self, repo: &Repository, added_file: &Path, message: &String) -> Result<Oid, git2::Error>;
+
+    /**
+     * Updates the filesystem
+     */
+    fn update_files(&self, repo: &Repository) -> Result<(), git2::Error>;
 }
 
 
@@ -100,5 +105,13 @@ impl Publisher for GitPublisher {
         self.push(&git_repo)?;
 
         Ok(commit_id)
+    }
+
+    fn update_files(&self, repo: &Repository) -> Result<(), git2::Error> {
+         let git_repo = git2::Repository::open(repo.path())?;
+
+        self.pull(&git_repo)?;
+
+        Ok(())
     }
 }
