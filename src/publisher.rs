@@ -7,7 +7,7 @@ pub trait Publisher {
     /**
      * Add a file to the repository, commits it and pushs it to the server
      */
-    fn publish_file(&self, repo: &Repository, added_file: &Path) -> Result<Oid, git2::Error>;
+    fn publish_file(&self, repo: &Repository, added_file: &Path, message: &String) -> Result<Oid, git2::Error>;
 }
 
 
@@ -79,19 +79,15 @@ impl GitPublisher {
         repo.find_tree(oid)
     }
 
-    fn get_commit_msg(&self) -> &str {
-        "Lol"
-    }
-
-    fn create_commit(&self, git_repo: &git2::Repository, sign: &git2::Signature, tree: &Tree, parent_commit: &Commit)-> Result<Oid, git2::Error>{
-        let commit_id = git_repo.commit(Some("HEAD"), &sign, &sign, self.get_commit_msg(), &tree, &[&parent_commit])?;
+    fn create_commit(&self, git_repo: &git2::Repository, sign: &git2::Signature, tree: &Tree, parent_commit: &Commit, message: &String)-> Result<Oid, git2::Error>{
+        let commit_id = git_repo.commit(Some("HEAD"), &sign, &sign, message, &tree, &[&parent_commit])?;
         println!("[repo: {}] Created commit {}", git_repo.path().display(), commit_id);
         Ok(commit_id)
     }
 }
 
 impl Publisher for GitPublisher {
-    fn publish_file(&self, repo: &Repository, added_file: &Path) -> Result<Oid, git2::Error> {
+    fn publish_file(&self, repo: &Repository, added_file: &Path, message: &String) -> Result<Oid, git2::Error> {
         let git_repo = git2::Repository::open(repo.path())?;
 
         self.pull(&git_repo)?;
@@ -99,7 +95,7 @@ impl Publisher for GitPublisher {
         let tree = self.add_to_index(&git_repo, added_file)?;       
 
         let parent_commit = self.find_last_commit(&git_repo)?;
-        let commit_id = self.create_commit(&git_repo, &repo.signature()?, &tree, &parent_commit)?;
+        let commit_id = self.create_commit(&git_repo, &repo.signature()?, &tree, &parent_commit, message)?;
 
         self.push(&git_repo)?;
 

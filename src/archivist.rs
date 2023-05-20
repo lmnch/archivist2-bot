@@ -3,19 +3,20 @@ use teloxide::{prelude::*, net::Download};
 use tokio::fs;
 use std::path::Path;
 
-use crate::{config::RepositoryFactory, publisher, categorizer,path_matcher};
+use crate::{config::RepositoryFactory, publisher, categorizer, path_matcher, commit_messages};
 
 
-pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer> {
+pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer, M: commit_messages::CommitMessageGenerator> {
     pub bot: Bot,
     pub repos: T,
     pub publisher: P,
     pub categorizer: C,
-    pub matcher: path_matcher::Matcher<path_matcher::LatestRule<path_matcher::DefaultRule>>,
+    pub matcher: path_matcher::Matcher<path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>>,
+    pub message_generator: M, 
 }
 
 
-impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer> Archivist<T, P, C> {    
+impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, M: commit_messages::CommitMessageGenerator> Archivist<T, P, C, M> {    
     pub async fn answer(&self, msg: Message)  -> ResponseResult<()> {
         if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
             // Unpin old auth messages
@@ -54,9 +55,9 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer> 
             // Write file to disk
             let file_meta = msg.document().unwrap().file.clone();
             let file = self.bot.get_file(file_meta.id).await?;
-            println!("[chat: {}] Pushing file {:?}", msg.chat.id, file);
 
             // Get destinated location
+            println!("[chat: {}] Pushing file {:?} to repo at {}", msg.chat.id, file, repo.unwrap().path());
             let dest = Path::new(repo.unwrap().path());
             let matching_template = self.categorizer.categorize(msg.caption(), categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
             let target = self.matcher.resolve(&repo.unwrap(), matching_template);
@@ -72,8 +73,9 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer> 
             let downloaded = self.bot.download_file(&file.path, &mut dst).await?;
             println!("[chat: {}] Downloaded file {:?}", msg.chat.id, downloaded);
             self.bot.send_message(msg.chat.id, format!("File stored at {}", target.to_string())).await?;
-
-            let commit = self.publisher.publish_file(repo.unwrap(), rel_path);
+            
+            let commit_msg = self.message_generator.generate().await;
+            let commit = self.publisher.publish_file(repo.unwrap(), rel_path, &commit_msg);
             println!("[chat: {}] Committed file {:?}", msg.chat.id, commit);
             if commit.is_ok() {
                 self.bot.send_message(msg.chat.id, format!("Commit: {}", commit.unwrap())).await?;

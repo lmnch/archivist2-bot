@@ -1,5 +1,5 @@
 use std::path::Path;
-use serde_json::{from_str,Value};
+use serde_json::from_str;
 use serde::{Serialize, Deserialize};
 
 use crate::config::Repository;
@@ -26,11 +26,6 @@ pub trait Categorizer {
 pub struct ExactPathCategorizer {
 }
 
-impl ExactPathCategorizer {
-    pub fn new() -> ExactPathCategorizer {
-        ExactPathCategorizer {  }
-    }
-}
 
 impl Categorizer for ExactPathCategorizer {
     fn categorize(&self, categorization: Option<&str>, _context: CategorizationContext) -> String {

@@ -1,5 +1,6 @@
 use git2::Signature;
 
+#[derive(Debug)]
 pub struct Repository {
     path: String,
     secret: String,
