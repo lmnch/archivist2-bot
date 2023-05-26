@@ -8,6 +8,7 @@ mod publisher;
 mod categorizer;
 mod path_matcher;
 mod commit_messages;
+mod message_cache;
 
 #[tokio::main]
 async fn main() {
@@ -37,9 +38,10 @@ async fn run() {
 
         let categori = categorizer::RepoBasedCategorizer::new();
 
-        let archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori,
+        let mut archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori,
             matcher: path_matcher::Matcher::new(),
-            message_generator: commit_messages::WhatTheCommitMessageGenerator::new()  };
+            message_generator: commit_messages::WhatTheCommitMessageGenerator::new(), 
+            message_cache: message_cache::InMemoryMessageCache::new()  };
 
         archivist.answer(m).await?;
         Ok(()) 

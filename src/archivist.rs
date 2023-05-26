@@ -3,21 +3,36 @@ use teloxide::{prelude::*, net::Download};
 use tokio::fs;
 use std::path::Path;
 
-use crate::{config::RepositoryFactory, publisher, categorizer, path_matcher, commit_messages};
+use crate::{config::RepositoryFactory, publisher, categorizer, path_matcher, commit_messages, message_cache::MessageCache};
 
 
-pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer, M: commit_messages::CommitMessageGenerator> {
+pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer, M: commit_messages::CommitMessageGenerator, MC: MessageCache> {
     pub bot: Bot,
     pub repos: T,
     pub publisher: P,
     pub categorizer: C,
     pub matcher: path_matcher::Matcher<path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>>,
     pub message_generator: M, 
+    pub message_cache: MC
 }
 
 
-impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, M: commit_messages::CommitMessageGenerator> Archivist<T, P, C, M> {    
-    pub async fn answer(&self, msg: Message)  -> ResponseResult<()> {
+fn handle_caption_message(msg: Option<Message>) -> Option<String> {
+    if msg.is_none() {
+        return None;
+    }
+    
+    let unwrapped =msg.unwrap();
+    let text = unwrapped.text();
+    if text.is_none() {
+        return None;
+    }
+
+    Some(text.unwrap().to_string())
+}
+
+impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, M: commit_messages::CommitMessageGenerator, MC: MessageCache> Archivist<T, P, C, M, MC> {    
+    pub async fn answer(&mut self, msg: Message)  -> ResponseResult<()> {
         if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
             // Unpin old auth messages
             self.bot.unpin_all_chat_messages(msg.chat.id).await?;
@@ -63,10 +78,19 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, 
                 return Ok(());
             }
 
+            // Get the caption (for mobile applications (which is my use case) the caption is sent
+            // as message before the actual file)
+            let caption_message = self.message_cache.pop(msg.chat.id);
+            let caption = handle_caption_message(caption_message);
             // Get destinated location
             println!("[chat: {}] Pushing file {:?} to repo at {}", msg.chat.id, file, repo.unwrap().path());
             let dest = Path::new(repo.unwrap().path());
-            let matching_template = self.categorizer.categorize(msg.caption(), categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
+            let mut matching_template = "".to_string();
+            if caption.is_some() {
+                matching_template = self.categorizer.categorize(Some(caption.unwrap().as_str()), categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
+            }else{
+                matching_template = self.categorizer.categorize(None, categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
+            }
             let target = self.matcher.resolve(&repo.unwrap(), matching_template);
             let rel_path = Path::new(&target);
             let path = dest.join(rel_path.clone());
@@ -93,4 +117,5 @@ impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, 
     }
     Ok(())
     }
+
 }
