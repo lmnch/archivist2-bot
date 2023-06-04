@@ -14,6 +14,7 @@ use crate::{
     message_cache::{MessageCache, SyncedInMemoryMessageCache},
     path_matcher::{self, Matcher},
     publisher::{self, GitPublisher, Publisher},
+    authenticate::{self, Authenticator, EnvironmentAuthenticator},
 };
 
 
@@ -31,6 +32,7 @@ pub struct ArchivistImpl<
     P: publisher::Publisher,
     C: categorizer::Categorizer,
     M: commit_messages::CommitMessageGenerator,
+    A: authenticate::Authenticator,
 > {
     pub bot: Bot,
     pub repos: T,
@@ -40,6 +42,7 @@ pub struct ArchivistImpl<
         path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>,
     >,
     pub message_generator: M,
+    pub authenticator: A,
 }
 
 pub type BilloArchivist = ArchivistImpl<
@@ -47,6 +50,7 @@ pub type BilloArchivist = ArchivistImpl<
     GitPublisher,
     RepoBasedCategorizer,
     WhatTheCommitMessageGenerator,
+    EnvironmentAuthenticator,
 >;
 
 impl BilloArchivist {
@@ -70,7 +74,8 @@ impl BilloArchivist {
             publisher,
             matcher: Matcher::new(),
             categorizer: RepoBasedCategorizer::new(),
-            message_generator: WhatTheCommitMessageGenerator::new()
+            message_generator: WhatTheCommitMessageGenerator::new(),
+            authenticator: EnvironmentAuthenticator::new(),
         }
     }
 }
@@ -81,7 +86,8 @@ impl<
         P: Publisher,
         C: Categorizer,
         M: CommitMessageGenerator,
-    >  ArchivistImpl<T, P, C, M>{
+        A: Authenticator,
+    >  ArchivistImpl<T, P, C, M, A>{
         pub async fn upload_document(
             &self,
             chat: ChatId,
@@ -195,7 +201,8 @@ impl<
         P: Publisher,
         C: Categorizer,
         M: CommitMessageGenerator,
-    > Archivist for ArchivistImpl<T, P, C, M>
+        A: Authenticator,
+    > Archivist for ArchivistImpl<T, P, C, M, A>
 {
     fn trigger_upload_document(
         &self,

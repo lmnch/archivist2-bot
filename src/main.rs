@@ -12,6 +12,7 @@ mod config;
 mod message_cache;
 mod path_matcher;
 mod publisher;
+mod authenticate;
 
 type UploadDialogue = Dialogue<State, InMemStorage<State>>;
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
