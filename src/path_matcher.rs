@@ -48,7 +48,7 @@ pub struct LatestRule<N: PathRule> {
 impl<T: PathRule> PathRule for LatestRule<T> {
     fn resolve(&self, context: &RuleContext) -> String {
        if context.current() == "^" {
-            // println!("trying to read dir {}/{}",context.repo.path(), context.until_current());
+            // log::info!("trying to read dir {}/{}",context.repo.path(), context.until_current());
             let paths = std::fs::read_dir(format!("{}/{}",context.repo.path(), context.until_current())).unwrap();
 
             return paths
@@ -116,7 +116,7 @@ impl<T:PathRule> Matcher<T> {
         let mut resulting_path : Vec<String> = Vec::new();
         for i in 0..path.len() {
             let context = RuleContext{path: &path, index: i, repo};
-            println!("[repo: {}] resolving context {:?}", repo.path(), &context);
+            log::info!("[repo: {}] resolving context {:?}", repo.path(), &context);
             resulting_path.push(self.rule_set.resolve(&context))
         }
 

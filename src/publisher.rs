@@ -29,7 +29,7 @@ impl GitPublisher {
     fn find_last_commit<'a>(&'a self, repo: &'a git2::Repository) -> Result<Commit, git2::Error> {
         let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
         let last_commit = obj.into_commit().map_err(|_| git2::Error::from_str("Couldn't find commit"))?;
-        println!("[repo: {}] Last commit: {}", repo.path().display(), last_commit.id());
+        log::info!("[repo: {}] Last commit: {}", repo.path().display(), last_commit.id());
         Ok(last_commit)
     }
 
@@ -55,7 +55,7 @@ impl GitPublisher {
         let mut remote = repo.find_remote("origin")?;
         let mut remote_con = remote.connect_auth(Direction::Push, Some(self.get_remote_callback()), None)?;
         remote_con.remote().push(&["refs/heads/master:refs/heads/master"], None)?;
-        println!("[repo: {}] Pushed", repo.path().display());
+        log::info!("[repo: {}] Pushed", repo.path().display());
         Ok(())
     }
 
@@ -80,13 +80,13 @@ impl GitPublisher {
         index.write_tree()?;
         let oid = index.write_tree()?;
         
-        println!("[repo: {}] Added file {} to index", repo.path().display(), added_file.display());
+        log::info!("[repo: {}] Added file {} to index", repo.path().display(), added_file.display());
         repo.find_tree(oid)
     }
 
     fn create_commit(&self, git_repo: &git2::Repository, sign: &git2::Signature, tree: &Tree, parent_commit: &Commit, message: &String)-> Result<Oid, git2::Error>{
         let commit_id = git_repo.commit(Some("HEAD"), &sign, &sign, message, &tree, &[&parent_commit])?;
-        println!("[repo: {}] Created commit {}", git_repo.path().display(), commit_id);
+        log::info!("[repo: {}] Created commit {}", git_repo.path().display(), commit_id);
         Ok(commit_id)
     }
 }

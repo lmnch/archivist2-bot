@@ -1,14 +1,27 @@
+use archivist::Archivist;
 use dotenv::dotenv;
-use teloxide::prelude::*;
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
+
+use crate::archivist::{BilloArchivist};
 
 // mod bot_action;
-mod config;
 mod archivist;
-mod publisher;
 mod categorizer;
-mod path_matcher;
 mod commit_messages;
+mod config;
 mod message_cache;
+mod path_matcher;
+mod publisher;
+
+type UploadDialogue = Dialogue<State, InMemStorage<State>>;
+type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+#[derive(Clone, Default)]
+pub enum State {
+    #[default]
+    Start,
+    ReceivedCaption(String),
+}
 
 #[tokio::main]
 async fn main() {
@@ -16,35 +29,71 @@ async fn main() {
 }
 
 async fn run() {
-    pretty_env_logger::init();
     dotenv().ok();
+    env_logger::init();
 
     log::info!("Starting authenticate bot...");
 
-    let bot = teloxide::Bot::from_env();  
-    
-    teloxide::repl(bot, |bot: Bot, m: Message| async move { 
-        let secret = std::env::var("SECRET").unwrap_or("".to_string());
-        let path = std::env::var("GIT_REPO").unwrap_or(".".to_string());
-        let name = std::env::var("GIT_NAME").unwrap_or("archiver".to_string());
-        let email = std::env::var("GIT_EMAIL").unwrap_or("archiver@mail.com".to_string());
-        let ssh_key = std::env::var("SSH_KEY").unwrap_or("".to_string());
+    let bot = teloxide::Bot::from_env();
+    log::info!("Starting bot...");
 
-        let repos = config::EnvironmentRepositoryFactory{
-            repo: config::Repository::new(path, secret, name, email)
-        };
 
-        let publisher = publisher::GitPublisher::new(ssh_key);
-
-        let categori = categorizer::RepoBasedCategorizer::new();
-
-        let mut archivist = archivist::Archivist { bot, repos, publisher, categorizer: categori,
-            matcher: path_matcher::Matcher::new(),
-            message_generator: commit_messages::WhatTheCommitMessageGenerator::new(), 
-            message_cache: message_cache::InMemoryMessageCache::new()  };
-
-        archivist.answer(m).await?;
-        Ok(()) 
-    }).await;
+    Dispatcher::builder(
+        bot, 
+        Update::filter_message()
+            .enter_dialogue::<Message, InMemStorage<String>, String>()
+            .branch(dptree::case![State::Start].endpoint(receive_caption))
+            .branch(dptree::case![State::ReceivedCaption(caption)].endpoint(receive_document))
+    )
+    .dependencies(dptree::deps![InMemStorage::<State>::new()])
+    .enable_ctrlc_handler()
+    .build()
+    .dispatch()
+    .await;
 }
 
+
+async fn receive_caption(bot: Bot, dialogue: UploadDialogue, msg: Message) -> HandlerResult {
+    match msg.text() {
+        Some(text) => {
+            dialogue.update(State::ReceivedCaption(text.into())).await?;
+            log::info!("Received text: {}", text);
+        }
+        None => {
+            log::info!("No text in message");
+        }
+    }
+    match msg.document() {
+        // Upload directly if only document
+        Some(doc) => {
+            let archivist = BilloArchivist::new(bot);
+            if msg.caption().is_some(){
+                let cap = msg.caption().unwrap();
+                //archivist.upload_document(msg.chat.id, doc, Some(&cap.to_string())).await?;
+            } else {
+                //archivist.upload_document(msg.chat.id, doc, None).await?;
+            }
+        }
+        None => {
+            log::info!("No document in message");
+        }
+    }
+
+    Ok(())
+}
+
+
+async fn receive_document(bot: Bot, dialogue: UploadDialogue, caption: String, msg: Message) -> HandlerResult {
+    match msg.document() {
+        Some(doc) => {
+            let archivist = BilloArchivist::new(bot);
+            //archivist.upload_document(msg.chat.id, doc, Some(&caption)).await?;
+        }
+        None => {
+            log::info!("No document in message");
+        }
+    }
+    dialogue.exit().await?;
+
+    Ok(())
+}

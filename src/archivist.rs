@@ -1,121 +1,208 @@
-
-use teloxide::{prelude::*, net::Download};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
+use async_trait::async_trait;
+use teloxide::{net::Download, prelude::*, types::Document};
 use tokio::fs;
-use std::path::Path;
 
-use crate::{config::RepositoryFactory, publisher, categorizer, path_matcher, commit_messages, message_cache::MessageCache};
+use crate::{
+    categorizer::{self, Categorizer, RepoBasedCategorizer},
+    commit_messages::{self, CommitMessageGenerator, WhatTheCommitMessageGenerator},
+    config::{EnvironmentRepositoryFactory, Repository, RepositoryFactory},
+    message_cache::{MessageCache, SyncedInMemoryMessageCache},
+    path_matcher::{self, Matcher},
+    publisher::{self, GitPublisher, Publisher},
+};
 
 
-pub struct Archivist<T: RepositoryFactory, P: publisher::Publisher, C: categorizer::Categorizer, M: commit_messages::CommitMessageGenerator, MC: MessageCache> {
+pub trait Archivist {
+    fn trigger_upload_document(
+        &self,
+        chat: ChatId,
+        document: &Document,
+        caption: Option<&String>,
+    ) -> ResponseResult<()>;
+}
+
+pub struct ArchivistImpl<
+    T: RepositoryFactory,
+    P: publisher::Publisher,
+    C: categorizer::Categorizer,
+    M: commit_messages::CommitMessageGenerator,
+> {
     pub bot: Bot,
     pub repos: T,
     pub publisher: P,
     pub categorizer: C,
-    pub matcher: path_matcher::Matcher<path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>>,
-    pub message_generator: M, 
-    pub message_cache: MC
+    pub matcher: path_matcher::Matcher<
+        path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>,
+    >,
+    pub message_generator: M,
+}
+
+pub type BilloArchivist = ArchivistImpl<
+    EnvironmentRepositoryFactory,
+    GitPublisher,
+    RepoBasedCategorizer,
+    WhatTheCommitMessageGenerator,
+>;
+
+impl BilloArchivist {
+    pub fn new(bot: Bot) -> BilloArchivist {
+        let secret = std::env::var("SECRET").unwrap_or("".to_string());
+        let path = std::env::var("GIT_REPO").unwrap_or(".".to_string());
+        let name = std::env::var("GIT_NAME").unwrap_or("archiver".to_string());
+        let email = std::env::var("GIT_EMAIL").unwrap_or("archiver@mail.com".to_string());
+        let ssh_key = std::env::var("SSH_KEY").unwrap_or("".to_string());
+
+        let repos = EnvironmentRepositoryFactory {
+            repo: Repository::new(path, secret, name, email),
+        };
+
+        let publisher = publisher::GitPublisher::new(ssh_key);
+        let categori = categorizer::RepoBasedCategorizer::new();
+
+        ArchivistImpl {
+            bot,
+            repos,
+            publisher,
+            matcher: Matcher::new(),
+            categorizer: RepoBasedCategorizer::new(),
+            message_generator: WhatTheCommitMessageGenerator::new()
+        }
+    }
 }
 
 
-fn handle_caption_message(msg: Option<Message>) -> Option<String> {
-    if msg.is_none() {
-        return None;
-    }
+impl<
+        T: RepositoryFactory,
+        P: Publisher,
+        C: Categorizer,
+        M: CommitMessageGenerator,
+    >  ArchivistImpl<T, P, C, M>{
+        pub async fn upload_document(
+            &self,
+            chat: ChatId,
+            document: &Document,
+            caption: Option<&String>,
+        ) -> ResponseResult<()> {
+            let auth_message: Option<Box<Message>> =
+                self.bot.get_chat(chat).await?.pinned_message.clone();
+            if !auth_message.is_some() {
+                self.bot
+                    .send_message(chat, "Please authenticate first!")
+                    .await?;
     
-    let unwrapped =msg.unwrap();
-    let text = unwrapped.text();
-    if text.is_none() {
-        return None;
-    }
-
-    Some(text.unwrap().to_string())
-}
-
-impl<T: RepositoryFactory, P: publisher::Publisher, C:categorizer::Categorizer, M: commit_messages::CommitMessageGenerator, MC: MessageCache> Archivist<T, P, C, M, MC> {    
-    pub async fn answer(&mut self, msg: Message)  -> ResponseResult<()> {
-        if msg.text().is_some() && msg.text().unwrap().starts_with("/auth") {
-            // Unpin old auth messages
-            self.bot.unpin_all_chat_messages(msg.chat.id).await?;
-            self.bot.pin_chat_message(msg.chat.id, msg.id).await?;
-            self.bot.send_message(msg.chat.id, "Credentials stored!").await?;
-
-            println!("[chat: {}] Stored authentication credential", msg.chat.id);
-
-            return Ok(())
-    }else{
-        let auth_message: Option<Box<Message>> = self.bot.get_chat(msg.chat.id).await?.pinned_message.clone();
-        if !auth_message.is_some() {
-            self.bot.send_message(msg.chat.id, "Please authenticate first!").await?;
-
-            print!("[chat: {}] No authentication message found", msg.chat.id);
-
-            return Ok(());
-        }
-        
-        let auth = auth_message.unwrap();
-        let auth_text = auth.text().unwrap(); 
-        let passed_secret = auth_text.replace("/auth ", "");
-        let repo = self.repos.get_repository(&passed_secret);
-
-        if repo.is_none(){
-            self.bot.send_message(msg.chat.id, "Incorrect authentication token!").await?;
-
-            print!("[chat: {}] Incorrect authentication token", msg.chat.id);
-
-            return Ok(())
-        }
-
-        // Could be also a file to be stored
-        if msg.document().is_some() {
+                print!("[chat: {}] No authentication message found", chat);
+    
+                return Ok(());
+            }
+    
+            let auth = auth_message.unwrap();
+            let auth_text = auth.text().unwrap();
+            let passed_secret = auth_text.replace("/auth ", "");
+            let repo = self.repos.get_repository(&passed_secret);
+    
+            if repo.is_none() {
+                self.bot
+                    .send_message(chat, "Incorrect authentication token!")
+                    .await?;
+    
+                print!("[chat: {}] Incorrect authentication token", chat);
+    
+                return Ok(());
+            }
+    
             // Write file to disk
-            let file_meta = msg.document().unwrap().file.clone();
+            let file_meta = document.file.clone();
             let file = self.bot.get_file(file_meta.id).await?;
-
+    
             // Pull changes upfront
             let pull_result = self.publisher.update_files(repo.unwrap());
             if pull_result.is_err() {
-                self.bot.send_message(msg.chat.id, format!("Pull failed: {}", pull_result.err().unwrap())).await?;
+                self.bot
+                    .send_message(chat, format!("Pull failed: {}", pull_result.err().unwrap()))
+                    .await?;
                 return Ok(());
             }
-
-            // Get the caption (for mobile applications (which is my use case) the caption is sent
-            // as message before the actual file)
-            let caption_message = self.message_cache.pop(msg.chat.id);
-            let caption = handle_caption_message(caption_message);
-            // Get destinated location
-            println!("[chat: {}] Pushing file {:?} to repo at {}", msg.chat.id, file, repo.unwrap().path());
+    
+            log::info!(
+                "[chat: {}] Pushing file {:?} to repo at {}",
+                chat,
+                file,
+                repo.unwrap().path()
+            );
             let dest = Path::new(repo.unwrap().path());
-            let mut matching_template = "".to_string();
+            let matching_template;
             if caption.is_some() {
-                matching_template = self.categorizer.categorize(Some(caption.unwrap().as_str()), categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
-            }else{
-                matching_template = self.categorizer.categorize(None, categorizer::CategorizationContext::new(repo.unwrap(), msg.chat.id.0));
+                matching_template = self.categorizer.categorize(
+                    Some(caption.unwrap().as_str()),
+                    categorizer::CategorizationContext::new(repo.unwrap(), chat.0),
+                );
+            } else {
+                matching_template = self.categorizer.categorize(
+                    None,
+                    categorizer::CategorizationContext::new(repo.unwrap(), chat.0),
+                );
             }
             let target = self.matcher.resolve(&repo.unwrap(), matching_template);
             let rel_path = Path::new(&target);
             let path = dest.join(rel_path.clone());
             if path.parent().is_some() && !path.parent().unwrap().exists() {
-                    fs::create_dir_all(path.parent().unwrap()).await?;
-                    println!("[chat: {}] Created directory {:?}", msg.chat.id, path.parent().unwrap());
+                fs::create_dir_all(path.parent().unwrap()).await?;
+                log::info!(
+                    "[chat: {}] Created directory {:?}",
+                    chat,
+                    path.parent().unwrap()
+                );
             }
             let mut dst = fs::File::create(path).await?;
-            println!("[chat: {}] Created file at {:?}", msg.chat.id, target);
-
+            log::info!("[chat: {}] Created file at {:?}", chat, target);
+    
             let downloaded = self.bot.download_file(&file.path, &mut dst).await?;
-            println!("[chat: {}] Downloaded file {:?}", msg.chat.id, downloaded);
-            self.bot.send_message(msg.chat.id, format!("File stored at {}", target.to_string())).await?;
-            
+            log::info!("[chat: {}] Downloaded file {:?}", chat, downloaded);
+            self.bot
+                .send_message(chat, format!("File stored at {}", target.to_string()))
+                .await?;
+    
             let commit_msg = self.message_generator.generate().await;
-            let commit = self.publisher.publish_file(repo.unwrap(), rel_path, &commit_msg);
-            println!("[chat: {}] Committed file {:?}", msg.chat.id, commit);
+            let commit = self
+                .publisher
+                .publish_file(repo.unwrap(), rel_path, &commit_msg);
+            log::info!("[chat: {}] Committed file {:?}", chat, commit);
             if commit.is_ok() {
-                self.bot.send_message(msg.chat.id, format!("Commit: {}", commit.unwrap())).await?;
-            }else{
-                self.bot.send_message(msg.chat.id, format!("Error during commit: {}", commit.err().unwrap())).await?;
+                self.bot
+                    .send_message(chat, format!("Commit: {}", commit.unwrap()))
+                    .await?;
+            } else {
+                self.bot
+                    .send_message(
+                        chat,
+                        format!("Error during commit: {}", commit.err().unwrap()),
+                    )
+                    .await?;
             }
+    
+            Ok(())
         }
     }
-    Ok(())
-    }
 
+impl<
+        T: RepositoryFactory,
+        P: Publisher,
+        C: Categorizer,
+        M: CommitMessageGenerator,
+    > Archivist for ArchivistImpl<T, P, C, M>
+{
+    fn trigger_upload_document(
+        &self,
+        chat: ChatId,
+        document: &Document,
+        caption: Option<&String>,
+    ) -> ResponseResult<()> {
+        self.upload_document(chat, document, caption);
+        Ok(())
+    }
 }
