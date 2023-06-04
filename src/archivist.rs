@@ -90,6 +90,7 @@ impl<
         ) -> ResponseResult<()> {
             let auth_message: Option<Box<Message>> =
                 self.bot.get_chat(chat).await?.pinned_message.clone();
+            log::info!("[chat: {}] Current auth message: {:?}", chat, auth_message);
             if !auth_message.is_some() {
                 self.bot
                     .send_message(chat, "Please authenticate first!")

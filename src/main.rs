@@ -25,10 +25,6 @@ pub enum State {
 
 #[tokio::main]
 async fn main() {
-    run().await;
-}
-
-async fn run() {
     dotenv().ok();
     env_logger::init();
 
@@ -37,11 +33,10 @@ async fn run() {
     let bot = teloxide::Bot::from_env();
     log::info!("Starting bot...");
 
-
     Dispatcher::builder(
         bot, 
         Update::filter_message()
-            .enter_dialogue::<Message, InMemStorage<String>, String>()
+            .enter_dialogue::<Message, InMemStorage<State>, State>()
             .branch(dptree::case![State::Start].endpoint(receive_caption))
             .branch(dptree::case![State::ReceivedCaption(caption)].endpoint(receive_document))
     )
@@ -69,9 +64,9 @@ async fn receive_caption(bot: Bot, dialogue: UploadDialogue, msg: Message) -> Ha
             let archivist = BilloArchivist::new(bot);
             if msg.caption().is_some(){
                 let cap = msg.caption().unwrap();
-                //archivist.upload_document(msg.chat.id, doc, Some(&cap.to_string())).await?;
+                archivist.upload_document(msg.chat.id, doc, Some(&cap.to_string())).await?;
             } else {
-                //archivist.upload_document(msg.chat.id, doc, None).await?;
+                archivist.upload_document(msg.chat.id, doc, None).await?;
             }
         }
         None => {
@@ -87,7 +82,7 @@ async fn receive_document(bot: Bot, dialogue: UploadDialogue, caption: String, m
     match msg.document() {
         Some(doc) => {
             let archivist = BilloArchivist::new(bot);
-            //archivist.upload_document(msg.chat.id, doc, Some(&caption)).await?;
+            archivist.upload_document(msg.chat.id, doc, Some(&caption)).await?;
         }
         None => {
             log::info!("No document in message");
