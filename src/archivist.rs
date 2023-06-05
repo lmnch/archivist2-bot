@@ -61,6 +61,14 @@ impl BilloArchivist {
         let email = std::env::var("GIT_EMAIL").unwrap_or("archiver@mail.com".to_string());
         let ssh_key = std::env::var("SSH_KEY").unwrap_or("".to_string());
 
+        log::info!("Starting with...");
+        log::info!("SECRET:    {}", secret);
+        log::info!("GIT_REPO:  {}", path);
+        log::info!("GIT_NAME:  {}", name);
+        log::info!("GIT_EMAIL: {}", email);
+        log::info!("SSH_KEY:   {}", ssh_key);
+
+
         let repos = EnvironmentRepositoryFactory {
             repo: Repository::new(path, secret, name, email),
         };
@@ -94,30 +102,19 @@ impl<
             document: &Document,
             caption: Option<&String>,
         ) -> ResponseResult<()> {
-            let auth_message: Option<Box<Message>> =
-                self.bot.get_chat(chat).await?.pinned_message.clone();
-            log::info!("[chat: {}] Current auth message: {:?}", chat, auth_message);
-            if !auth_message.is_some() {
-                self.bot
-                    .send_message(chat, "Please authenticate first!")
-                    .await?;
-    
-                print!("[chat: {}] No authentication message found", chat);
-    
+            
+            let passed_secret = self.authenticator.get_auth(&self.bot, &chat).await?;
+            if passed_secret.is_none() {
                 return Ok(());
             }
-    
-            let auth = auth_message.unwrap();
-            let auth_text = auth.text().unwrap();
-            let passed_secret = auth_text.replace("/auth ", "");
-            let repo = self.repos.get_repository(&passed_secret);
+            let repo = self.repos.get_repository(&passed_secret.unwrap());
     
             if repo.is_none() {
                 self.bot
                     .send_message(chat, "Incorrect authentication token!")
                     .await?;
     
-                print!("[chat: {}] Incorrect authentication token", chat);
+                log::info!("[chat: {}] Incorrect authentication token", chat);
     
                 return Ok(());
             }
@@ -129,9 +126,15 @@ impl<
             // Pull changes upfront
             let pull_result = self.publisher.update_files(repo.unwrap());
             if pull_result.is_err() {
+                let error = pull_result.err().unwrap();
                 self.bot
-                    .send_message(chat, format!("Pull failed: {}", pull_result.err().unwrap()))
+                    .send_message(chat, format!("Pull failed: {}", &error))
                     .await?;
+                log::error!(
+                    "[chat: {}] Pull failed: {}",
+                    chat,
+                    &error                    
+                );
                 return Ok(());
             }
     

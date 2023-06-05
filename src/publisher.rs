@@ -34,7 +34,9 @@ impl GitPublisher {
     }
 
     fn pull(&self, repo: &git2::Repository) -> Result<(), git2::Error> {
-        repo.find_remote("origin")?.fetch(&[self.branch.clone()], None, None)?;
+        let mut remote = repo.find_remote("origin")?;
+        let mut remote_con = remote.connect_auth(Direction::Fetch, Some(self.get_remote_callback()), None)?;
+        remote_con.remote().fetch(&[self.branch.clone()], None, None)?;
         let fetch_head = repo.find_reference("FETCH_HEAD")?;
         let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
         let analysis = repo.merge_analysis(&[&fetch_commit])?;

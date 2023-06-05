@@ -52,8 +52,12 @@ async fn main() {
 async fn receive_caption(bot: Bot, dialogue: UploadDialogue, msg: Message) -> HandlerResult {
     match msg.text() {
         Some(text) => {
-            dialogue.update(State::ReceivedCaption(text.into())).await?;
-            log::info!("Received text: {}", text);
+            if text.starts_with("/auth") {
+                bot.pin_chat_message(msg.chat.id, msg.id).await?;
+            }else {
+                dialogue.update(State::ReceivedCaption(text.into())).await?;
+                log::info!("Received text: {}", text);
+            }
         }
         None => {
             log::info!("No text in message");
