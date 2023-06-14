@@ -2,27 +2,14 @@ use teloxide::prelude::*;
 use async_trait::async_trait;
 use std::{error::{Error, self}, string};
 
-#[async_trait]
-pub trait Authenticator {
-    async fn get_auth(&self, bot: &Bot, chat: &ChatId) -> Result<Option<String>, teloxide::RequestError>;
-}
+pub struct Authenticator {}
 
-
-pub struct EnvironmentAuthenticator {
-}
-
-
-impl EnvironmentAuthenticator {
-    pub fn new() -> Self {
-        Self {
-        }
+impl Authenticator {
+    pub fn new() -> Authenticator {
+        Authenticator {}
     }
-}
 
-
-#[async_trait]
-impl Authenticator for EnvironmentAuthenticator {
-    async fn get_auth(&self, bot: &Bot, chat: &ChatId) -> Result<Option<String>, teloxide::RequestError> {
+    pub async fn get_auth(&self, bot: &Bot, chat: &ChatId) -> Result<Option<String>, teloxide::RequestError> {
         let auth_message: Option<Box<Message>> = bot.get_chat(chat.clone()).await?.pinned_message.clone();
         // log::info!("[chat: {}] Current auth message: {:?}", chat, auth_message);
 

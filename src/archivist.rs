@@ -10,11 +10,11 @@ use tokio::fs;
 use crate::{
     categorizer::{self, Categorizer, RepoBasedCategorizer},
     commit_messages::{self, CommitMessageGenerator, WhatTheCommitMessageGenerator},
-    config::{EnvironmentRepositoryFactory, Repository, RepositoryFactory},
+    config::{EnvironmentRepositoryFactory, Repository, RepositoryFactory, JsonRepositoryFactory},
     message_cache::{MessageCache, SyncedInMemoryMessageCache},
     path_matcher::{self, Matcher},
     publisher::{self, GitPublisher, Publisher},
-    authenticate::{self, Authenticator, EnvironmentAuthenticator},
+    authenticate::Authenticator,
 };
 
 
@@ -32,7 +32,6 @@ pub struct ArchivistImpl<
     P: publisher::Publisher,
     C: categorizer::Categorizer,
     M: commit_messages::CommitMessageGenerator,
-    A: authenticate::Authenticator,
 > {
     pub bot: Bot,
     pub repos: T,
@@ -42,36 +41,35 @@ pub struct ArchivistImpl<
         path_matcher::AddRule<path_matcher::LatestRule<path_matcher::DefaultRule>>,
     >,
     pub message_generator: M,
-    pub authenticator: A,
+    pub authenticator: Authenticator,
 }
 
 pub type BilloArchivist = ArchivistImpl<
-    EnvironmentRepositoryFactory,
+    JsonRepositoryFactory,
     GitPublisher,
     RepoBasedCategorizer,
     WhatTheCommitMessageGenerator,
-    EnvironmentAuthenticator,
 >;
 
 impl BilloArchivist {
     pub fn new(bot: Bot) -> BilloArchivist {
-        let secret = std::env::var("SECRET").unwrap_or("".to_string());
-        let path = std::env::var("GIT_REPO").unwrap_or(".".to_string());
+        // let secret = std::env::var("SECRET").unwrap_or("".to_string());
+        // let path = std::env::var("GIT_REPO").unwrap_or(".".to_string());
+        let path = std::env::var("GIT_REPO_CONFIG").unwrap_or(".".to_string());
         let name = std::env::var("GIT_NAME").unwrap_or("archiver".to_string());
         let email = std::env::var("GIT_EMAIL").unwrap_or("archiver@mail.com".to_string());
         let ssh_key = std::env::var("SSH_KEY").unwrap_or("".to_string());
 
         log::info!("Starting with...");
-        log::info!("SECRET:    {}", secret);
-        log::info!("GIT_REPO:  {}", path);
+        // log::info!("SECRET:    {}", secret);
+        // log::info!("GIT_REPO:  {}", path);
+        log::info!("GIT_REPO_CONFIG:  {}", path);
         log::info!("GIT_NAME:  {}", name);
         log::info!("GIT_EMAIL: {}", email);
         log::info!("SSH_KEY:   {}", ssh_key);
 
 
-        let repos = EnvironmentRepositoryFactory {
-            repo: Repository::new(path, secret, name, email),
-        };
+        let repos = JsonRepositoryFactory::new(&path, &name, &email);
 
         let publisher = publisher::GitPublisher::new(ssh_key);
         let categori = categorizer::RepoBasedCategorizer::new();
@@ -83,7 +81,7 @@ impl BilloArchivist {
             matcher: Matcher::new(),
             categorizer: RepoBasedCategorizer::new(),
             message_generator: WhatTheCommitMessageGenerator::new(),
-            authenticator: EnvironmentAuthenticator::new(),
+            authenticator: Authenticator::new(),
         }
     }
 }
@@ -94,8 +92,7 @@ impl<
         P: Publisher,
         C: Categorizer,
         M: CommitMessageGenerator,
-        A: Authenticator,
-    >  ArchivistImpl<T, P, C, M, A>{
+    >  ArchivistImpl<T, P, C, M>{
         pub async fn upload_document(
             &self,
             chat: ChatId,
@@ -204,8 +201,7 @@ impl<
         P: Publisher,
         C: Categorizer,
         M: CommitMessageGenerator,
-        A: Authenticator,
-    > Archivist for ArchivistImpl<T, P, C, M, A>
+    > Archivist for ArchivistImpl<T, P, C, M>
 {
     fn trigger_upload_document(
         &self,
